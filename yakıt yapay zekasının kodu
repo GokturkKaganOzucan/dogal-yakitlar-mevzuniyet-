@@ -1,59 +1,108 @@
-<div>Teachable Machine Image Model</div>
-<button type="button" onclick="init()">Start</button>
-<div id="webcam-container"></div>
-<div id="label-container"></div>
-<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@latest/dist/teachablemachine-image.min.js"></script>
-<script type="text/javascript">
-    // More API functions here:
-    // https://github.com/googlecreativelab/teachablemachine-community/tree/master/libraries/image
+!unzip ./converted_keras.zip
 
-    // the link to your model provided by Teachable Machine export panel
-    const URL = "./my_model/";
+import PIL
+PIL.__version__
 
-    let model, webcam, labelContainer, maxPredictions;
+!pip install Pillow==9.1.0
 
-    // Load the image model and setup the webcam
-    async function init() {
-        const modelURL = URL + "model.json";
-        const metadataURL = URL + "metadata.json";
+from google.colab import files
+from PIL import Image, ImageOps  # pillow yerine PIL kütüphanesinden içe aktarılıyor
 
-        // load the model and metadata
-        // Refer to tmImage.loadFromFiles() in the API to support files from a file picker
-        // or files from your local hard drive
-        // Note: the pose library adds "tmImage" object to your window (window.tmImage)
-        model = await tmImage.load(modelURL, metadataURL);
-        maxPredictions = model.getTotalClasses();
+path = files.upload()
+path = list(path.keys())[0]
+image=Image.open(path)
 
-        // Convenience function to setup a webcam
-        const flip = true; // whether to flip the webcam
-        webcam = new tmImage.Webcam(200, 200, flip); // width, height, flip
-        await webcam.setup(); // request access to the webcam
-        await webcam.play();
-        window.requestAnimationFrame(loop);
+from tensorflow.keras.layers import DepthwiseConv2D
 
-        // append elements to the DOM
-        document.getElementById("webcam-container").appendChild(webcam.canvas);
-        labelContainer = document.getElementById("label-container");
-        for (let i = 0; i < maxPredictions; i++) { // and class labels
-            labelContainer.appendChild(document.createElement("div"));
-        }
-    }
+def custom_depthwise_conv2d(**kwargs):
+    kwargs.pop("groups", None)  # 'groups' parametresini kaldır
+    return DepthwiseConv2D(**kwargs)
 
-    async function loop() {
-        webcam.update(); // update the webcam frame
-        await predict();
-        window.requestAnimationFrame(loop);
-    }
+model = load_model("keras_model.h5", custom_objects={"DepthwiseConv2D": custom_depthwise_conv2d})
+# Anlaşılırlık için bilimsel gösterimin devre dışı bırakılması
+np.set_printoptions(suppress=True)
 
-    // run the webcam image through the image model
-    async function predict() {
-        // predict can take in an image, video or canvas html element
-        const prediction = await model.predict(webcam.canvas);
-        for (let i = 0; i < maxPredictions; i++) {
-            const classPrediction =
-                prediction[i].className + ": " + prediction[i].probability.toFixed(2);
-            labelContainer.childNodes[i].innerHTML = classPrediction;
-        }
-    }
-</script>
+
+# Etiketler yükleniyor
+class_names = open("/content/labels.txt", "r").readlines()
+
+
+
+# Keras modelini beslemek için doğru şekle sahip bir dizi oluşturma
+# Diziye koyabileceğiniz 'uzunluk' veya görüntü sayısı
+# Şekil (shape) tuple'ındaki ilk pozisyon tarafından belirlenir (bu örnekte: 1)
+data = np.ndarray(shape=(1, 224, 224, 3), dtype=np.float32)
+
+# Bunu resminizin yolu ile değiştirin
+image = image.convert("RGB")
+
+# Görüntüyü en az 224x224 piksel olacak şekilde yeniden boyutlandırma ve ardından merkezden kırpma
+size = (224, 224)
+image = ImageOps.fit(image, size, Image.Resampling.LANCZOS)
+
+# Görüntüyü bir NumPy dizisine dönüştürme
+image_array = np.asarray(image)
+
+# Görüntüyü normalleştirme
+normalized_image_array = (image_array.astype(np.float32) / 127.5) - 1
+
+# Görüntüyü diziye yükleme
+data[0] = normalized_image_array
+
+# Modelin tahmin edilmesi
+prediction = model.predict(data)
+index = np.argmax(prediction)
+class_name = class_names[index]
+confidence_score = prediction[0][index]
+
+# Tahmin ve güven skorunu yazdır.
+print("Sınıf:", class_name[2:], end="")
+print("Güven Skoru:", confidence_score)
+
+from tensorflow.keras.models import load_model
+from tensorflow.keras.layers import DepthwiseConv2D
+import numpy as np
+from PIL import Image, ImageOps
+
+# 'groups' parametresini kaldırarak DepthwiseConv2D yükleme fonksiyonu
+def custom_depthwise_conv2d(**kwargs):
+    kwargs.pop("groups", None)
+    return DepthwiseConv2D(**kwargs)
+
+# Modeli yükle
+model = load_model("keras_model.h5", custom_objects={"DepthwiseConv2D": custom_depthwise_conv2d})
+
+# Load the labels
+class_names = [line.strip() for line in open("/content/labels.txt", "r").readlines()]
+
+# Resmi oku ve ön işle
+image = Image.open("/content/güneş1.jpeg").convert("RGB")
+image = ImageOps.fit(image, (224, 224), Image.Resampling.LANCZOS)
+image_array = np.asarray(image)
+normalized_image_array = (image_array.astype(np.float32) / 127.5) - 1
+data = np.ndarray(shape=(1, 224, 224, 3), dtype=np.float32)
+data[0] = normalized_image_array
+
+# Tahmin yap
+prediction = model.predict(data)
+index = np.argmax(prediction)
+class_name = class_names[index]  # Doğrudan etiketi al
+confidence_score = prediction[0][index]
+
+# Tahmini ekrana yazdır
+print("Class:", class_name)
+print("Confidence Score:", confidence_score)
+
+# Öneri verme
+if "İyi Yakıt" in class_name:
+  print("iyi yakıt bu")
+  print("Bu tarz yakıtları daha çok kullan")
+elif "Kötü Yakıt" in class_name:
+    print("kötü yakıt bu")
+    print("Bu yakıtların kullanımını azalt! >:()")
+else:
+    print("⚠ Model, iklim değişikliği ile ilgili bir sınıf belirleyemedi.")
+
+import tensorflow as tf
+
+!pip install tensorflow
